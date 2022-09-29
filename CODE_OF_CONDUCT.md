@@ -1,4 +1,4 @@
-# Java Starter Project Code of Conduct
+# Ewon Flexy Java Multi-Loader Code of Conduct
 
 ## Our Pledge
 

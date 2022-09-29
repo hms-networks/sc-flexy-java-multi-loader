@@ -6,13 +6,13 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!-- PROJECT NAME -->
-  <name>Java Maven Starter Project</name>
+  <name>Ewon Flexy Java Multi-Loader</name>
   <!-- PROJECT VERSION -->
   <version>0.0.1</version>
   <!-- PROJECT GROUP ID (PARENT PACKAGE) -->
   <groupId>com.hms_networks.americas.sc</groupId>
   <!-- PROJECT ARTIFACT ID (ROOT PACKAGE NAME) -->
-  <artifactId>sc-java-maven-starter-project</artifactId>
+  <artifactId>flexy-java-multi-loader</artifactId>
 
   <!-- PROJECT PROPERTIES -->
   <properties>
