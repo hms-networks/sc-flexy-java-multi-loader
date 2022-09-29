@@ -13,7 +13,7 @@ configured for use locally with Ant.
 	<property name="ProjectName" value="flexy-java-multi-loader"/>
 	
 	<!-- The main class to run (where the main function is) -->
-	<property name="MainClass" value="com.example.ExampleMain"/>
+	<property name="MainClass" value="com.hms_networks.americas.sc.javaloader.ExampleMain"/>
 	
 	<!-- The JAVA heapsize -->
 	<property name="HeapSize" value="5M"/>

@@ -1,1 +1,1 @@
--heapsize 25M -classpath /usr/flexy-java-multi-loader-0.0.1-full.jar -emain com.example.ExampleMain
+-heapsize 25M -classpath /usr/flexy-java-multi-loader-0.0.1-full.jar -emain com.hms_networks.americas.sc.javaloader.ExampleMain
