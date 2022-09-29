@@ -1,4 +1,4 @@
-package com.example;
+package com.hms_networks.americas.sc.javaloader;
 
 /**
  * Example main class for Solution Center Java Starter Project. This class includes a basic main
