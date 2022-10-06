@@ -1,8 +1,10 @@
 package com.hms_networks.americas.sc.javaloader;
 
+import com.ewon.ewonitf.EventHandlerThread;
 import com.ewon.ewonitf.RuntimeControl;
 import com.hms_networks.americas.sc.extensions.fileutils.FileAccessManager;
 import com.hms_networks.americas.sc.extensions.logging.Logger;
+import com.hms_networks.americas.sc.extensions.system.application.SCAppArgsParser;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -210,8 +212,8 @@ public class EwonJavaMultiLoaderMain {
             + EwonJavaMultiLoaderMain.class.getPackage().getImplementationVersion()
             + ")...");
 
-    // Create variable to track next run command (null if none/shutdown)
-    String nextRunCommand = null;
+    // Create variable to track if restart message shown (not shown on auto-restart)
+    boolean restart = false;
 
     // Get current (running) JVM classpath jar files
     final String[] currentJvmCpJarFiles = getCurrentJvmCpJarFiles();
@@ -226,36 +228,47 @@ public class EwonJavaMultiLoaderMain {
 
     // Handle missing multi-loader classpath folder jar files, otherwise start each Jar
     if (!currentJvmCpMissingMultiLoaderCpFolderJarFiles) {
+      // Start an event manager
+      boolean autorun = false;
+      EventHandlerThread eventHandler = new EventHandlerThread(autorun);
+      eventHandler.runEventManagerInThread();
+
       /* Start the main method in the main class of each multi-leader classpath folder jar in a
        * new thread */
       for (int i = 0; i < multiLoaderCpFolderJarFiles.length; i++) {
-        startThreadAndRunJarFile(i, multiLoaderCpFolderJarFiles[i], args);
+        String[] multiLoaderCpFolderJarArgs =
+            new String[] {SCAppArgsParser.ARG_STARTED_BY_MULTI_LOADER};
+        startThreadAndRunJarFile(i, multiLoaderCpFolderJarFiles[i], multiLoaderCpFolderJarArgs);
       }
 
     } else {
       /* Configure next run command to add missing (include all) multi-loader classpath folder jar
        * files */
-      nextRunCommand = getNextRunCmdWithMultiLoaderCpFolderJarFiles(multiLoaderCpFolderJarFiles);
-      if (nextRunCommand != null) {
-        Logger.LOG_CRITICAL(
-            "The "
-                + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
-                + " application will be restarted to update the JVM classpath.");
-      }
+      restart = true;
+      Logger.LOG_CRITICAL(
+          "The "
+              + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
+              + " application will be restarted to update the JVM classpath.");
     }
 
-    // Output application shutdown/restart message and configure next run command (if required)
-    if (nextRunCommand != null) {
+    // Output application shutdown/restart message and configure next run command
+    RuntimeControl.configureNextRunCommand(
+        getNextRunCmdWithMultiLoaderCpFolderJarFiles(multiLoaderCpFolderJarFiles));
+    if (restart) {
+      // Launcher will be immediately restarted to update the JVM classpath
       Logger.LOG_CRITICAL(
           "Restarting "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + "!");
-      RuntimeControl.configureNextRunCommand(nextRunCommand);
     } else {
+      // Launcher successfully finished and will not be immediately restarted
       Logger.LOG_CRITICAL(
           "Finished running "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + "!");
+      Logger.LOG_CRITICAL(
+          "Automatic restart functionality has been enabled. If the JVM stops running, the "
+              + "application will be restarted.");
     }
   }
 
