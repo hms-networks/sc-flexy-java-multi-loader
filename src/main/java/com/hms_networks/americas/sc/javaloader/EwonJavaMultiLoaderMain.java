@@ -2,10 +2,8 @@ package com.hms_networks.americas.sc.javaloader;
 
 import com.ewon.ewonitf.EventHandlerThread;
 import com.ewon.ewonitf.RuntimeControl;
-import com.hms_networks.americas.sc.extensions.fileutils.FileAccessManager;
-import com.hms_networks.americas.sc.extensions.logging.Logger;
-import com.hms_networks.americas.sc.extensions.system.application.SCAppArgsParser;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -33,7 +31,7 @@ import jregex.Pattern;
  * </ul>
  *
  * @author HMS Networks, MU Americas Solution Center
- * @version 1.0.0
+ * @version 1.1.0
  * @since 1.0.0
  */
 public class EwonJavaMultiLoaderMain {
@@ -192,20 +190,30 @@ public class EwonJavaMultiLoaderMain {
   private static final Class[] JAVA_MAIN_METHOD_PARAMETER_TYPES = new Class[] {String[].class};
 
   /**
+   * The argument specified to an Ewon Flexy Java application to indicate that it was started by the
+   * Ewon Flexy Java Multi-Loader application. The value of this argument must match the value of
+   * {@code SCAppArgsParser#ARG_STARTED_BY_MULTI_LOADER} in the Solution Center Extensions Library.
+   * If a mismatch occurs, unintended interactions between the Ewon Flexy Java Multi-Loader and
+   * applications started by it may occur.
+   *
+   * @since 1.1.0
+   */
+  public static final String ARG_STARTED_BY_MULTI_LOADER = "-StartedByMultiLoader";
+
+  /**
    * Main method for the Ewon Java Multi-Loader application. Each Java jar file within the {@link
    * #MULTI_LOADER_CLASSPATH_FOLDER} directory of the Ewon filesystem is loaded to the Java
    * classpath, then each main class/method in is started in a new thread.
    *
-   * <p>Note: All log output messages are written using the {@link Logger#LOG_LEVEL_CRITICAL} log
-   * level to ensure no output is skipped due to other application interaction with the {@link
-   * Logger} class.
+   * <p>Note: All log output messages are written using the standard Java System.out and System.err
+   * print streams to ensure no output is skipped due to other application interactions.
    *
    * @param args command line arguments (not used, ignored)
    * @since 1.0.0
    */
   public static void main(String[] args) {
     // Output application start message
-    Logger.LOG_CRITICAL(
+    System.out.println(
         "Running "
             + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
             + " (v"
@@ -236,8 +244,7 @@ public class EwonJavaMultiLoaderMain {
       /* Start the main method in the main class of each multi-leader classpath folder jar in a
        * new thread */
       for (int i = 0; i < multiLoaderCpFolderJarFiles.length; i++) {
-        String[] multiLoaderCpFolderJarArgs =
-            new String[] {SCAppArgsParser.ARG_STARTED_BY_MULTI_LOADER};
+        String[] multiLoaderCpFolderJarArgs = new String[] {ARG_STARTED_BY_MULTI_LOADER};
         startThreadAndRunJarFile(i, multiLoaderCpFolderJarFiles[i], multiLoaderCpFolderJarArgs);
       }
 
@@ -245,7 +252,7 @@ public class EwonJavaMultiLoaderMain {
       /* Configure next run command to add missing (include all) multi-loader classpath folder jar
        * files */
       restart = true;
-      Logger.LOG_CRITICAL(
+      System.out.println(
           "The "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + " application will be restarted to update the JVM classpath.");
@@ -256,17 +263,17 @@ public class EwonJavaMultiLoaderMain {
         getNextRunCmdWithMultiLoaderCpFolderJarFiles(multiLoaderCpFolderJarFiles));
     if (restart) {
       // Launcher will be immediately restarted to update the JVM classpath
-      Logger.LOG_CRITICAL(
+      System.out.println(
           "Restarting "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + "!");
     } else {
       // Launcher successfully finished and will not be immediately restarted
-      Logger.LOG_CRITICAL(
+      System.out.println(
           "Finished running "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + "!");
-      Logger.LOG_CRITICAL(
+      System.out.println(
           "Automatic restart functionality has been enabled. If the JVM stops running, the "
               + "application will be restarted.");
     }
@@ -361,9 +368,9 @@ public class EwonJavaMultiLoaderMain {
        * if not */
       if (!jarFound) {
         missingJars = true;
-        Logger.LOG_CRITICAL("Needs to be Loaded (missing): " + multiLoaderCpFolderJarFile);
+        System.out.println("Needs to be Loaded (missing): " + multiLoaderCpFolderJarFile);
       } else {
-        Logger.LOG_CRITICAL("Loaded (ready): " + multiLoaderCpFolderJarFile);
+        System.out.println("Loaded (ready): " + multiLoaderCpFolderJarFile);
       }
     }
 
@@ -407,6 +414,24 @@ public class EwonJavaMultiLoaderMain {
   }
 
   /**
+   * Reads the contents of the file at the specified file path and returns the contents as a String.
+   *
+   * @param filePath the path of the file to read
+   * @return the contents of the file at the specified file path
+   * @throws IOException if the file does not exist, is a directory rather than a regular file, or
+   *     otherwise cannot be opened for reading
+   * @since 1.1.0
+   */
+  private static String readFileContentsToString(String filePath) throws IOException {
+    File file = new File(filePath);
+    byte[] fileBytes = new byte[(int) file.length()];
+    FileInputStream fileInputStream = new FileInputStream(file);
+    fileInputStream.read(fileBytes);
+    fileInputStream.close();
+    return new String(fileBytes);
+  }
+
+  /**
    * Gets the next run command which will launch the Ewon Java Multi-Loader application with all
    * multi-loader classpath folder jar files included on the JVM classpath. If a jvmrun file exists
    * on the Ewon Flexy, the heapsize will be retained from the existing jvmrun file. If a jvmrun
@@ -425,10 +450,10 @@ public class EwonJavaMultiLoaderMain {
     // Get current jvmrun file contents
     String currentJvmrunFileContents = null;
     try {
-      currentJvmrunFileContents = FileAccessManager.readFileToString(JVMRUN_FILE_PATH);
+      currentJvmrunFileContents = readFileContentsToString(JVMRUN_FILE_PATH);
     } catch (IOException e) {
-      Logger.LOG_SERIOUS("Could not read existing jvmrun file! It may be missing or corrupted.");
-      Logger.LOG_EXCEPTION(e);
+      System.err.println("Could not read existing jvmrun file! It may be missing or corrupted.");
+      e.printStackTrace(System.err);
     }
 
     // Create string to store next run command contents
@@ -466,7 +491,7 @@ public class EwonJavaMultiLoaderMain {
       // Add this main class to next run command
       nextRunCommand += JVMRUN_MAIN_CLASS_ARG + " " + EwonJavaMultiLoaderMain.class.getName();
     } else {
-      Logger.LOG_CRITICAL("Unable to detect current jar file path to build next run command!");
+      System.err.println("Unable to detect current jar file path to build next run command!");
     }
 
     // Return built next run command
@@ -488,12 +513,12 @@ public class EwonJavaMultiLoaderMain {
       Attributes attributes = manifest.getMainAttributes();
       jarFileMainClassName = attributes.getValue(JAR_MANIFEST_MAIN_CLASS_ATTRIBUTE);
     } catch (IOException e) {
-      Logger.LOG_CRITICAL(
+      System.err.println(
           "Unable to find attribute '"
               + JAR_MANIFEST_MAIN_CLASS_ATTRIBUTE
               + "' in manifest of Jar file: "
               + jarFilePath);
-      Logger.LOG_EXCEPTION(e);
+      e.printStackTrace(System.err);
     }
     return jarFileMainClassName;
   }
@@ -514,12 +539,12 @@ public class EwonJavaMultiLoaderMain {
     try {
       mainClass = Class.forName(mainClassName);
     } catch (ClassNotFoundException e) {
-      Logger.LOG_CRITICAL(
+      System.err.println(
           "Unable to find or load main class '"
               + mainClassName
               + "' from Jar file: "
               + jarFilePath);
-      Logger.LOG_EXCEPTION(e);
+      e.printStackTrace(System.err);
     }
 
     // Load main method from main class
@@ -529,12 +554,12 @@ public class EwonJavaMultiLoaderMain {
         mainMethod = mainClass.getMethod(JAVA_MAIN_METHOD_NAME, JAVA_MAIN_METHOD_PARAMETER_TYPES);
       }
     } catch (NoSuchMethodException e) {
-      Logger.LOG_CRITICAL(
+      System.err.println(
           "Unable to find or load main method in main class '"
               + mainClassName
               + "' from Jar file: "
               + jarFilePath);
-      Logger.LOG_EXCEPTION(e);
+      e.printStackTrace(System.err);
     }
 
     // Run main method from main class
@@ -542,30 +567,30 @@ public class EwonJavaMultiLoaderMain {
       try {
         mainMethod.invoke(null, new Object[] {args});
       } catch (IllegalAccessException e) {
-        Logger.LOG_CRITICAL(
+        System.err.println(
             "Unable to access main method in main class '"
                 + mainClassName
                 + "' from Jar file: "
                 + jarFilePath);
-        Logger.LOG_EXCEPTION(e);
+        e.printStackTrace(System.err);
       } catch (InvocationTargetException e) {
-        Logger.LOG_CRITICAL(
+        System.err.println(
             "Unable to invoke main method in main class '"
                 + mainClassName
                 + "' from Jar file: "
                 + jarFilePath);
-        Logger.LOG_EXCEPTION(e);
+        e.printStackTrace(System.err);
       } catch (Exception e) {
-        Logger.LOG_CRITICAL(
+        System.err.println(
             "Could not successfully execute the main method in the main class '"
                 + mainClassName
                 + "' of Jar file '"
                 + jarFilePath
                 + "' due to an exception.");
-        Logger.LOG_EXCEPTION(e);
+        e.printStackTrace(System.err);
       }
     } else {
-      Logger.LOG_CRITICAL(
+      System.err.println(
           "Cannot execute the following Jar file because the main class and/or main "
               + "method could not be found or loaded: "
               + jarFilePath);
@@ -600,7 +625,7 @@ public class EwonJavaMultiLoaderMain {
               new Runnable() {
                 public void run() {
                   // Log jar file run start
-                  Logger.LOG_CRITICAL("Starting " + jarFilePath + "...");
+                  System.out.println("Starting " + jarFilePath + "...");
 
                   // Run jar file
                   runJarFileMain(jarFilePath, jarFileMainClassName, args);
@@ -611,7 +636,7 @@ public class EwonJavaMultiLoaderMain {
       // Start thread
       jarFileRunThread.start();
     } else {
-      Logger.LOG_CRITICAL(
+      System.err.println(
           "Cannot execute the following Jar file because it is missing a Main-Class "
               + "attribute: "
               + jarFilePath);
