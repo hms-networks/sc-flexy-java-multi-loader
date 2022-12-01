@@ -2,15 +2,20 @@ package com.hms_networks.americas.sc.javaloader;
 
 import com.ewon.ewonitf.EventHandlerThread;
 import com.ewon.ewonitf.RuntimeControl;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.List;
 import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import jregex.Matcher;
@@ -131,6 +136,29 @@ public class EwonJavaMultiLoaderMain {
   private static final String JAR_MANIFEST_MAIN_CLASS_ATTRIBUTE = "Main-Class";
 
   /**
+   * The regex pattern used to match a {@code <dependency>} entry for the Solution Center Extensions
+   * Library in a Jar file's {@code pom.xml} file(s). This pattern may be used to extract the
+   * version of the Solution Center Extensions Library using the capture group specified by {@link
+   * #JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX_GROUP_INDEX}.
+   *
+   * @since 1.1.0
+   */
+  private static final String JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX =
+      "^\\s*<dependency>\\s*"
+          + "<groupId>com\\.hms_networks\\.americas\\.sc<\\/groupId>\\s*"
+          + "<artifactId>extensions<\\/artifactId>\\s*"
+          + "<version>(.*)<\\/version>\\s*"
+          + "<\\/dependency>\\s*$";
+
+  /**
+   * The index of the capture group in {@link #JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX} which
+   * contains the version of the Solution Center Extensions Library.
+   *
+   * @since 1.1.0
+   */
+  private static final int JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX_GROUP_INDEX = 1;
+
+  /**
    * The file extension of Java jar files.
    *
    * @since 1.0.0
@@ -223,6 +251,9 @@ public class EwonJavaMultiLoaderMain {
     // Create variable to track if restart message shown (not shown on auto-restart)
     boolean restart = false;
 
+    // Create variable to track if shutdown is due to an error
+    boolean errorShutdown = false;
+
     // Get current (running) JVM classpath jar files
     final String[] currentJvmCpJarFiles = getCurrentJvmCpJarFiles();
 
@@ -236,16 +267,36 @@ public class EwonJavaMultiLoaderMain {
 
     // Handle missing multi-loader classpath folder jar files, otherwise start each Jar
     if (!currentJvmCpMissingMultiLoaderCpFolderJarFiles) {
-      // Start an event manager
-      boolean autorun = false;
-      EventHandlerThread eventHandler = new EventHandlerThread(autorun);
-      eventHandler.runEventManagerInThread();
+      // Check for extensions library version mismatches
+      final List extensionsLibraryVersionMismatch =
+          checkExtensionsLibraryVersionMismatch(multiLoaderCpFolderJarFiles);
+      if (extensionsLibraryVersionMismatch == null) {
+        // Start an event manager
+        boolean autorun = false;
+        EventHandlerThread eventHandler = new EventHandlerThread(autorun);
+        eventHandler.runEventManagerInThread();
 
-      /* Start the main method in the main class of each multi-leader classpath folder jar in a
-       * new thread */
-      for (int i = 0; i < multiLoaderCpFolderJarFiles.length; i++) {
-        String[] multiLoaderCpFolderJarArgs = new String[] {ARG_STARTED_BY_MULTI_LOADER};
-        startThreadAndRunJarFile(i, multiLoaderCpFolderJarFiles[i], multiLoaderCpFolderJarArgs);
+        /* Start the main method in the main class of each multi-leader classpath folder jar in a
+         * new thread */
+        for (int i = 0; i < multiLoaderCpFolderJarFiles.length; i++) {
+          String[] multiLoaderCpFolderJarArgs = new String[] {ARG_STARTED_BY_MULTI_LOADER};
+          startThreadAndRunJarFile(i, multiLoaderCpFolderJarFiles[i], multiLoaderCpFolderJarArgs);
+        }
+      } else {
+        // Output library version mismatch error message
+        System.err.println(
+            "A mismatch was detected between Solution Center Extensions Library versions which are"
+                + " being loaded from Jars in the Ewon Java Multi-Loader classpath. Please ensure"
+                + " that only one Jar file contains the Solution Center Extensions Library, or that"
+                + " all Jars containing the Solution Center Extensions Library use the same"
+                + " version.");
+        System.err.println(
+            "The following Jars contain the Solution Center Extensions Library, but use different"
+                + " versions:");
+        for (int i = 0; i < extensionsLibraryVersionMismatch.size(); i++) {
+          System.err.println(extensionsLibraryVersionMismatch.get(i));
+        }
+        errorShutdown = true;
       }
 
     } else {
@@ -259,8 +310,10 @@ public class EwonJavaMultiLoaderMain {
     }
 
     // Output application shutdown/restart message and configure next run command
-    RuntimeControl.configureNextRunCommand(
-        getNextRunCmdWithMultiLoaderCpFolderJarFiles(multiLoaderCpFolderJarFiles));
+    if (!errorShutdown) {
+      RuntimeControl.configureNextRunCommand(
+          getNextRunCmdWithMultiLoaderCpFolderJarFiles(multiLoaderCpFolderJarFiles));
+    }
     if (restart) {
       // Launcher will be immediately restarted to update the JVM classpath
       System.out.println(
@@ -273,9 +326,11 @@ public class EwonJavaMultiLoaderMain {
           "Finished running "
               + EwonJavaMultiLoaderMain.class.getPackage().getImplementationTitle()
               + "!");
-      System.out.println(
-          "Automatic restart functionality has been enabled. If the JVM stops running, the "
-              + "application will be restarted.");
+      if (!errorShutdown) {
+        System.out.println(
+            "Automatic restart functionality has been enabled. If the JVM stops running, the "
+                + "application will be restarted.");
+      }
     }
   }
 
@@ -496,6 +551,85 @@ public class EwonJavaMultiLoaderMain {
 
     // Return built next run command
     return nextRunCommand;
+  }
+
+  /**
+   * Checks each multi-loader classpath folder jar file to see if it contains a mismatch between
+   * versions of the Solution Center Extensions Library. If a mismatch is found, a {@link String}
+   * will be added to the returned {@link List} containing the mismatched jar file name and the
+   * version of the Solution Center Extensions Library that it contains. If no mismatches are found,
+   * the return value will be null.
+   *
+   * @param multiLoaderCpFolderJarFiles the multi-loader classpath folder jar files to check
+   * @return a {@link List} of {@link String}s containing the names of jar files that contain a
+   *     mismatch between versions of the Solution Center Extensions Library, or null if no
+   *     mismatches are found
+   * @since 1.1.0
+   */
+  private static List checkExtensionsLibraryVersionMismatch(String[] multiLoaderCpFolderJarFiles) {
+    // Loop through each multi-loader classpath jar file and compare extension library version
+    String lastVersion = null;
+    List mismatchedVersions = null;
+    List matchedVersions = new ArrayList();
+    for (int i = 0; i < multiLoaderCpFolderJarFiles.length; i++) {
+      String multiLoaderCpFolderJarFile = multiLoaderCpFolderJarFiles[i];
+      try {
+        // Get multi-loader classpath Jar file object
+        JarFile jarFile = new JarFile(multiLoaderCpFolderJarFile);
+
+        // Check for pom.xml files
+        Enumeration jarFileEnumeration = jarFile.entries();
+        while (jarFileEnumeration.hasMoreElements()) {
+          JarEntry jarEntry = (JarEntry) jarFileEnumeration.nextElement();
+          if (jarEntry.getName().endsWith("pom.xml")) {
+            // Get pom.xml file input stream
+            InputStream pomXmlInputStream = jarFile.getInputStream(jarEntry);
+
+            // Read pom.xml file contents
+            final int pomXmlFileContentsBufferSize = 1024;
+            ByteArrayOutputStream pomXmlFileContentsOutputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[pomXmlFileContentsBufferSize];
+            int bytesRead;
+            while ((bytesRead = pomXmlInputStream.read(buffer)) != -1) {
+              pomXmlFileContentsOutputStream.write(buffer, 0, bytesRead);
+            }
+            String pomXmlFileContents = pomXmlFileContentsOutputStream.toString();
+
+            // Get extension library version
+            Pattern pattern =
+                new Pattern(JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX, Pattern.MULTILINE);
+            Matcher matcher = pattern.matcher(pomXmlFileContents);
+            boolean find = matcher.find();
+            if (find) {
+              String version = matcher.group(JAR_POM_SC_EXTENSIONS_DEP_VERSION_REGEX_GROUP_INDEX);
+              if (lastVersion == null) {
+                lastVersion = version;
+                matchedVersions.add(multiLoaderCpFolderJarFile + ": v" + version);
+              } else if (!lastVersion.equals(version)) {
+                if (mismatchedVersions == null) {
+                  mismatchedVersions = new ArrayList();
+                }
+                mismatchedVersions.add(multiLoaderCpFolderJarFile + ": v" + version);
+                break;
+              }
+            }
+          }
+        }
+
+      } catch (Exception e) {
+        System.err.println(
+            "Failed to check Jar file for extension library version mismatch: "
+                + multiLoaderCpFolderJarFile);
+        e.printStackTrace(System.err);
+      }
+    }
+
+    // If there are mismatched versions, return list of matched versions to compare against
+    if (mismatchedVersions != null) {
+      mismatchedVersions.addAll(matchedVersions);
+    }
+
+    return mismatchedVersions;
   }
 
   /**
